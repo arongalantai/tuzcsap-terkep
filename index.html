@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>Tűzcsap térkép</title>
+
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <style>
+        #map {
+            height: 90vh;
+            width: 100%;
+        }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        #searchBox {
+            padding: 10px;
+            background: #f2f2f2;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="searchBox">
+        <input type="text" id="address" placeholder="Add meg a címedet...">
+        <button onclick="findLocation()">Keresés</button>
+        <p id="result"></p>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <script>
+
+        // Alap térkép
+        const map = L.map('map').setView([47.4979, 19.0402], 13);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        let hydrantLayer = L.geoJSON().addTo(map);
+        let userMarker = null;
+
+        // Tűzcsapok betöltése
+        fetch("hydrants.geojson")
+            .then(res => res.json())
+            .then(data => {
+                hydrantLayer = L.geoJSON(data, {
+                    pointToLayer: function (feature, latlng) {
+                        return L.marker(latlng, { icon: L.icon({
+                            iconUrl: "https://cdn-icons-png.flaticon.com/512/744/744984.png",
+                            iconSize: [28, 28]
+                        }) });
+                    }
+                }).addTo(map);
+            });
+
+        // Cím keresése (Nominatim)
+        function findLocation() {
+            let address = document.getElementById("address").value;
+            if (!address) return;
+
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${address}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.length === 0) {
+                        document.getElementById("result").innerText = "A cím nem található.";
+                        return;
+                    }
+
+                    let lat = parseFloat(data[0].lat);
+                    let lon = parseFloat(data[0].lon);
+
+                    // Felhasználó helye marker
+                    if (userMarker) userMarker.remove();
+                    userMarker = L.marker([lat, lon], {color: "blue"}).addTo(map);
+
+                    map.setView([lat, lon], 16);
+
+                    findNearestHydrant(lat, lon);
+                });
+        }
+
+        // Távolság kiszámítása (Haversine formula)
+        function distance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const toRad = x => x * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat/2)**2 +
+                      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                      Math.sin(dLon/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        // Legközelebbi tűzcsap keresése
+        function findNearestHydrant(lat, lon) {
+            let nearest = null;
+            let minDist = Infinity;
+
+            hydrantLayer.eachLayer(marker => {
+                let hLat = marker.getLatLng().lat;
+                let hLon = marker.getLatLng().lng;
+
+                let dist = distance(lat, lon, hLat, hLon);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = marker;
+                }
+            });
+
+            if (nearest) {
+                nearest.openPopup();
+                document.getElementById("result").innerHTML =
+                    "Legközelebbi tűzcsap távolsága: " + Math.round(minDist) + " méter.";
+
+                L.polyline([[lat, lon], nearest.getLatLng()], {color: "red"}).addTo(map);
+            }
+        }
+
+    </script>
+</body>
+</html>
