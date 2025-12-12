@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
 <meta charset="utf-8">
-<title>Tűzcsap térkép</title>
+<title>Tűzcsap térkép – bővített</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -15,12 +15,10 @@ html, body {
   margin: 0;
   font-family: Arial, sans-serif;
 }
-
 #map {
   height: 100vh;
   width: 100vw;
 }
-
 .panel {
   position: absolute;
   top: 10px;
@@ -31,12 +29,14 @@ html, body {
   border-radius: 6px;
   box-shadow: 0 2px 6px rgba(0,0,0,.3);
   font-size: 14px;
-  width: 230px;
+  width: 240px;
 }
-
 input, button {
   width: 100%;
   margin-top: 5px;
+}
+small {
+  color: #555;
 }
 </style>
 </head>
@@ -46,9 +46,12 @@ input, button {
 <div class="panel">
   <input id="addr" placeholder="Cím keresése">
   <button onclick="searchAddr()">🔍 Cím keresése</button>
-  <button onclick="locate()">📍 Saját hely (GPS)</button>
+  <button onclick="locate()">📍 Saját hely</button>
   <button onclick="routeToNearest()">🧭 Útvonal a legközelebbihez</button>
-  <small>📌 Tipp: kattints a térképre a pontos helyhez</small>
+  <small>
+    ℹ️ Több adatforrás + duplikációszűrés<br>
+    🔍 Tűzcsapok csak zoom ≥ 15
+  </small>
   <div id="info"></div>
 </div>
 
@@ -58,7 +61,7 @@ input, button {
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
 <script>
-/* ====== TÉRKÉP ====== */
+/* ===== TÉRKÉP ===== */
 const map = L.map("map").setView([47.1625, 19.5033], 7);
 
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -69,14 +72,15 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
 const cluster = L.markerClusterGroup();
 map.addLayer(cluster);
 
-/* ====== ÁLLAPOT ====== */
+/* ===== ÁLLAPOT ===== */
 let hydrants = [];
 let userMarker = null;
 let routeLine = null;
 let lastBBox = null;
 const MIN_ZOOM = 15;
+const DUPLICATE_DISTANCE = 15; // méter
 
-/* ====== TÁVOLSÁG ====== */
+/* ===== HAVERSINE ===== */
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = x => x * Math.PI / 180;
@@ -89,7 +93,14 @@ function haversine(lat1, lon1, lat2, lon2) {
   ));
 }
 
-/* ====== OVERPASS ====== */
+/* ===== DUPLIKÁCIÓ SZŰRÉS ===== */
+function isDuplicate(lat, lon) {
+  return hydrants.some(h =>
+    haversine(lat, lon, h.lat, h.lon) < DUPLICATE_DISTANCE
+  );
+}
+
+/* ===== BŐVÍTETT OVERPASS LEKÉRÉS ===== */
 async function loadHydrants() {
   if (map.getZoom() < MIN_ZOOM) {
     cluster.clearLayers();
@@ -107,7 +118,11 @@ async function loadHydrants() {
 
   const query = `
 [out:json][timeout:25];
-node["emergency"="fire_hydrant"](${bbox.join(",")});
+(
+  node["emergency"="fire_hydrant"](${bbox.join(",")});
+  node["emergency"="hydrant"](${bbox.join(",")});
+  node["fire_hydrant"="yes"](${bbox.join(",")});
+);
 out body;
 `;
 
@@ -119,15 +134,19 @@ out body;
     const d = await r.json();
 
     d.elements.forEach(h => {
+      if (!h.lat || !h.lon) return;
+      if (isDuplicate(h.lat, h.lon)) return;
+
       const m = L.circleMarker([h.lat, h.lon], {
         radius: 5,
         color: "red",
         fillOpacity: 0.8
-      }).bindPopup("🚒 Tűzcsap");
+      }).bindPopup("🚒 Tűzcsap (OSM)");
 
       cluster.addLayer(m);
       hydrants.push({ lat: h.lat, lon: h.lon, marker: m });
     });
+
   } catch (e) {
     console.error("Overpass hiba:", e);
   }
@@ -136,7 +155,7 @@ out body;
 map.on("moveend", loadHydrants);
 map.on("zoomend", loadHydrants);
 
-/* ====== FELHASZNÁLÓ HELY ====== */
+/* ===== FELHASZNÁLÓ ===== */
 function setUser(lat, lon) {
   if (userMarker) map.removeLayer(userMarker);
   userMarker = L.marker([lat, lon]).addTo(map)
@@ -145,29 +164,17 @@ function setUser(lat, lon) {
   map.setView([lat, lon], 16);
 }
 
-/* GPS – high accuracy */
 function locate() {
   navigator.geolocation.getCurrentPosition(
-    pos => {
-      setUser(pos.coords.latitude, pos.coords.longitude);
-    },
-    err => {
-      alert("Helymeghatározás sikertelen");
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 0
-    }
+    p => setUser(p.coords.latitude, p.coords.longitude),
+    () => alert("Helymeghatározás sikertelen"),
+    { enableHighAccuracy: true }
   );
 }
 
-/* Kattintásos helymegadás */
-map.on("click", e => {
-  setUser(e.latlng.lat, e.latlng.lng);
-});
+map.on("click", e => setUser(e.latlng.lat, e.latlng.lng));
 
-/* ====== CÍM KERESÉS ====== */
+/* ===== CÍM KERESÉS ===== */
 async function searchAddr() {
   const q = document.getElementById("addr").value;
   const r = await fetch(
@@ -177,7 +184,7 @@ async function searchAddr() {
   if (d[0]) setUser(+d[0].lat, +d[0].lon);
 }
 
-/* ====== LEGKÖZELEBBI ====== */
+/* ===== LEGKÖZELEBBI ===== */
 function nearestHydrant() {
   if (!userMarker || hydrants.length === 0) return null;
   const u = userMarker.getLatLng();
@@ -195,7 +202,7 @@ function nearestHydrant() {
   return best;
 }
 
-/* ====== ÚTVONAL ====== */
+/* ===== ÚTVONAL ===== */
 async function routeToNearest() {
   const h = nearestHydrant();
   if (!h) return;
@@ -217,7 +224,7 @@ async function routeToNearest() {
   }).addTo(map);
 }
 
-/* ====== SERVICE WORKER ====== */
+/* ===== SERVICE WORKER ===== */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("sw.js");
 }
