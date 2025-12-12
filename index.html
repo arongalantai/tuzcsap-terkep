@@ -1,130 +1,117 @@
 <!DOCTYPE html>
 <html lang="hu">
 <head>
-    <meta charset="UTF-8">
-    <title>Tűzcsap térkép</title>
+<meta charset="utf-8">
+<title>Tűzcsap térkép</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <!-- Leaflet CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
-    <style>
-        #map {
-            height: 90vh;
-            width: 100%;
-        }
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-        }
-        #searchBox {
-            padding: 10px;
-            background: #f2f2f2;
-        }
-    </style>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#d32f2f">
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+
+<style>
+body{margin:0;font-family:Arial}
+#map{height:100vh}
+.panel{
+  position:absolute;top:10px;left:10px;z-index:1000;
+  background:#fff;padding:10px;border-radius:6px;
+  box-shadow:0 2px 6px rgba(0,0,0,.3);font-size:14px
+}
+input,button{margin-top:4px;width:100%}
+</style>
 </head>
-
 <body>
-    <div id="searchBox">
-        <input type="text" id="address" placeholder="Add meg a címedet...">
-        <button onclick="findLocation()">Keresés</button>
-        <p id="result"></p>
-    </div>
 
-    <div id="map"></div>
+<div class="panel">
+  <input id="addr" placeholder="Cím keresése">
+  <button onclick="searchAddr()">🔎 Keresés</button>
+  <button onclick="locate()">📍 Saját hely</button>
+  <button onclick="route()">🧭 Útvonal a legközelebbihez</button>
+  <div id="info"></div>
+</div>
 
-    <!-- Leaflet JS -->
-    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<div id="map"></div>
 
-    <script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
-        // Alap térkép
-        const map = L.map('map').setView([47.4979, 19.0402], 13);
+<script>
+const map=L.map("map").setView([47.1625,19.5033],7);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(map);
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
+const cluster=L.markerClusterGroup();
+map.addLayer(cluster);
 
-        let hydrantLayer = L.geoJSON().addTo(map);
-        let userMarker = null;
+let hydrants=[],userMarker=null,routeLine=null,lastBBox=null;
+const MIN_ZOOM=15;
 
-        // Tűzcsapok betöltése
-        fetch("hydrants.geojson")
-            .then(res => res.json())
-            .then(data => {
-                hydrantLayer = L.geoJSON(data, {
-                    pointToLayer: function (feature, latlng) {
-                        return L.marker(latlng, { icon: L.icon({
-                            iconUrl: "https://cdn-icons-png.flaticon.com/512/744/744984.png",
-                            iconSize: [28, 28]
-                        }) });
-                    }
-                }).addTo(map);
-            });
+function hav(a,b,c,d){
+ const R=6371000,t=x=>x*Math.PI/180;
+ return 2*R*Math.asin(Math.sqrt(
+  Math.sin(t(c-a)/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(t(d-b)/2)**2
+ ));
+}
 
-        // Cím keresése (Nominatim)
-        function findLocation() {
-            let address = document.getElementById("address").value;
-            if (!address) return;
+async function loadHydrants(){
+ if(map.getZoom()<MIN_ZOOM){cluster.clearLayers();hydrants=[];return;}
+ const b=map.getBounds(),bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
+ if(JSON.stringify(bb)===JSON.stringify(lastBBox))return;
+ lastBBox=bb;cluster.clearLayers();hydrants=[];
+ const q=`[out:json][timeout:25];node["emergency"="fire_hydrant"](${bb.join(",")});out body;`;
+ const r=await fetch("https://overpass.nchc.org.tw/api/interpreter",{method:"POST",body:q});
+ const d=await r.json();
+ d.elements.forEach(e=>{
+  const m=L.circleMarker([e.lat,e.lon],{radius:5,color:"red",fillOpacity:.8});
+  cluster.addLayer(m);hydrants.push({lat:e.lat,lon:e.lon,marker:m});
+ });
+}
+map.on("moveend",loadHydrants);map.on("zoomend",loadHydrants);
 
-            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${address}`)
-                .then(res => res.json())
-                .then(data => {
-                    if (data.length === 0) {
-                        document.getElementById("result").innerText = "A cím nem található.";
-                        return;
-                    }
+function setUser(lat,lon){
+ if(userMarker)map.removeLayer(userMarker);
+ userMarker=L.marker([lat,lon]).addTo(map).bindPopup("📍 Te").openPopup();
+ map.setView([lat,lon],16);
+}
 
-                    let lat = parseFloat(data[0].lat);
-                    let lon = parseFloat(data[0].lon);
+function locate(){
+ navigator.geolocation.getCurrentPosition(p=>{
+  setUser(p.coords.latitude,p.coords.longitude);
+ });
+}
 
-                    // Felhasználó helye marker
-                    if (userMarker) userMarker.remove();
-                    userMarker = L.marker([lat, lon], {color: "blue"}).addTo(map);
+async function searchAddr(){
+ const q=document.getElementById("addr").value;
+ const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
+ const d=await r.json(); if(!d[0])return;
+ setUser(+d[0].lat,+d[0].lon);
+}
 
-                    map.setView([lat, lon], 16);
+function nearest(){
+ if(!userMarker||hydrants.length===0)return null;
+ const u=userMarker.getLatLng();let best=null;
+ hydrants.forEach(h=>{
+  const d=hav(u.lat,u.lng,h.lat,h.lon);
+  if(!best||d<best.d)best={...h,d};
+ });
+ document.getElementById("info").innerText=`Legközelebbi: ${Math.round(best.d)} m`;
+ best.marker.openPopup();return best;
+}
 
-                    findNearestHydrant(lat, lon);
-                });
-        }
+async function route(){
+ const n=nearest(); if(!n)return;
+ if(routeLine)map.removeLayer(routeLine);
+ const u=userMarker.getLatLng();
+ const url=`https://router.project-osrm.org/route/v1/foot/${u.lng},${u.lat};${n.lon},${n.lat}?overview=full&geometries=geojson`;
+ const r=await fetch(url);const d=await r.json();
+ routeLine=L.geoJSON(d.routes[0].geometry,{color:"blue"}).addTo(map);
+}
 
-        // Távolság kiszámítása (Haversine formula)
-        function distance(lat1, lon1, lat2, lon2) {
-            const R = 6371e3;
-            const toRad = x => x * Math.PI / 180;
-            const dLat = toRad(lat2 - lat1);
-            const dLon = toRad(lon2 - lon1);
-            const a = Math.sin(dLat/2)**2 +
-                      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-                      Math.sin(dLon/2)**2;
-            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        }
-
-        // Legközelebbi tűzcsap keresése
-        function findNearestHydrant(lat, lon) {
-            let nearest = null;
-            let minDist = Infinity;
-
-            hydrantLayer.eachLayer(marker => {
-                let hLat = marker.getLatLng().lat;
-                let hLon = marker.getLatLng().lng;
-
-                let dist = distance(lat, lon, hLat, hLon);
-                if (dist < minDist) {
-                    minDist = dist;
-                    nearest = marker;
-                }
-            });
-
-            if (nearest) {
-                nearest.openPopup();
-                document.getElementById("result").innerHTML =
-                    "Legközelebbi tűzcsap távolsága: " + Math.round(minDist) + " méter.";
-
-                L.polyline([[lat, lon], nearest.getLatLng()], {color: "red"}).addTo(map);
-            }
-        }
-
-    </script>
+if("serviceWorker"in navigator){
+ navigator.serviceWorker.register("sw.js");
+}
+</script>
 </body>
 </html>
