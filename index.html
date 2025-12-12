@@ -5,7 +5,6 @@
 <title>Tűzcsap térkép</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
@@ -32,7 +31,7 @@ html, body {
   border-radius: 6px;
   box-shadow: 0 2px 6px rgba(0,0,0,.3);
   font-size: 14px;
-  width: 220px;
+  width: 230px;
 }
 
 input, button {
@@ -46,15 +45,15 @@ input, button {
 
 <div class="panel">
   <input id="addr" placeholder="Cím keresése">
-  <button onclick="searchAddr()">🔍 Keresés</button>
-  <button onclick="locate()">📍 Saját hely</button>
+  <button onclick="searchAddr()">🔍 Cím keresése</button>
+  <button onclick="locate()">📍 Saját hely (GPS)</button>
   <button onclick="routeToNearest()">🧭 Útvonal a legközelebbihez</button>
+  <small>📌 Tipp: kattints a térképre a pontos helyhez</small>
   <div id="info"></div>
 </div>
 
 <div id="map"></div>
 
-<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
@@ -90,7 +89,7 @@ function haversine(lat1, lon1, lat2, lon2) {
   ));
 }
 
-/* ====== OVERPASS LEKÉRÉS ====== */
+/* ====== OVERPASS ====== */
 async function loadHydrants() {
   if (map.getZoom() < MIN_ZOOM) {
     cluster.clearLayers();
@@ -137,18 +136,36 @@ out body;
 map.on("moveend", loadHydrants);
 map.on("zoomend", loadHydrants);
 
-/* ====== FELHASZNÁLÓ ====== */
+/* ====== FELHASZNÁLÓ HELY ====== */
 function setUser(lat, lon) {
   if (userMarker) map.removeLayer(userMarker);
-  userMarker = L.marker([lat, lon]).addTo(map).bindPopup("📍 Te itt vagy").openPopup();
+  userMarker = L.marker([lat, lon]).addTo(map)
+    .bindPopup("📍 Saját hely")
+    .openPopup();
   map.setView([lat, lon], 16);
 }
 
+/* GPS – high accuracy */
 function locate() {
-  navigator.geolocation.getCurrentPosition(p => {
-    setUser(p.coords.latitude, p.coords.longitude);
-  });
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      setUser(pos.coords.latitude, pos.coords.longitude);
+    },
+    err => {
+      alert("Helymeghatározás sikertelen");
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
+    }
+  );
 }
+
+/* Kattintásos helymegadás */
+map.on("click", e => {
+  setUser(e.latlng.lat, e.latlng.lng);
+});
 
 /* ====== CÍM KERESÉS ====== */
 async function searchAddr() {
@@ -186,7 +203,11 @@ async function routeToNearest() {
   if (routeLine) map.removeLayer(routeLine);
 
   const u = userMarker.getLatLng();
-  const url = `https://router.project-osrm.org/route/v1/foot/${u.lng},${u.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
+  const url =
+    `https://router.project-osrm.org/route/v1/foot/` +
+    `${u.lng},${u.lat};${h.lon},${h.lat}` +
+    `?overview=full&geometries=geojson`;
+
   const r = await fetch(url);
   const d = await r.json();
 
