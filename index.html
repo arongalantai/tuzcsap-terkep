@@ -74,7 +74,7 @@ button,input{
 <script>
 /* ===== KONFIG ===== */
 const ADMIN_PIN = "1234";
-const MIN_ZOOM = 13;          // mobilbarát
+const MIN_ZOOM = 13;
 const DUPLICATE_DISTANCE = 15;
 
 /* ===== MAP ===== */
@@ -83,12 +83,12 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).a
 const cluster = L.markerClusterGroup();
 map.addLayer(cluster);
 
-/* ===== TŰZCSAP IKON (PNG – BIZTOS) ===== */
+/* ===== TŰZCSAP IKON (FLATICON – BIZTOSAN MŰKÖDIK) ===== */
 const hydrantIcon = L.icon({
-  iconUrl: "https://raw.githubusercontent.com/openstreetmap/map-icons/master/icons/emergency/fire_hydrant.png",
-  iconSize: [30,30],
-  iconAnchor: [15,30],
-  popupAnchor: [0,-30]
+  iconUrl: "https://cdn-icons-png.flaticon.com/512/809/809957.png",
+  iconSize: [32, 32],
+  iconAnchor: [16, 32],
+  popupAnchor: [0, -32]
 });
 
 /* ===== ÁLLAPOT ===== */
@@ -98,7 +98,7 @@ let reportMode=false;
 let reports = JSON.parse(localStorage.getItem("hydrantReports")||"[]");
 let reportMarkers=[];
 
-/* ===== SEGÉDFÜGGVÉNYEK ===== */
+/* ===== SEGÉD ===== */
 function hav(lat1,lon1,lat2,lon2){
  const R=6371000,t=x=>x*Math.PI/180;
  return 2*R*Math.asin(Math.sqrt(
@@ -110,7 +110,7 @@ function isDuplicate(lat,lon){
  return hydrants.some(h=>hav(lat,lon,h.lat,h.lon)<DUPLICATE_DISTANCE);
 }
 
-/* ===== TŰZCSAPOK BETÖLTÉSE ===== */
+/* ===== TŰZCSAPOK ===== */
 async function loadHydrants(){
  if(map.getZoom()<MIN_ZOOM){
   cluster.clearLayers();
@@ -151,7 +151,7 @@ async function loadHydrants(){
 map.on("moveend",loadHydrants);
 map.on("zoomend",loadHydrants);
 
-/* ===== FELHASZNÁLÓ HELY ===== */
+/* ===== FELHASZNÁLÓ ===== */
 function setUser(lat,lon){
  if(userMarker) map.removeLayer(userMarker);
  userMarker=L.marker([lat,lon]).addTo(map)
@@ -178,7 +178,7 @@ function locate(){
  );
 }
 
-/* ===== TÉRKÉP ÉRINTÉS / KATTINTÁS ===== */
+/* ===== TÉRKÉP KATT / TAP ===== */
 map.on("tap",handleMapTap);
 map.on("click",handleMapTap);
 
@@ -201,7 +201,7 @@ function handleMapTap(e){
  setUser(e.latlng.lat,e.latlng.lng);
 }
 
-/* ===== CÍM KERESÉS ===== */
+/* ===== CÍM ===== */
 async function searchAddr(){
  const r=await fetch(
   `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr.value)}`
