@@ -61,8 +61,8 @@ async function loadHydrants(){
  if(JSON.stringify(bb)===JSON.stringify(lastBBox))return;
  lastBBox=bb;cluster.clearLayers();hydrants=[];
  const q=`[out:json][timeout:25];node["emergency"="fire_hydrant"](${bb.join(",")});out body;`;
- const r=await fetch("fetch("https://overpass-api.de/api/interpreter", {
- ",{method:"POST",body:q});
+const r = await fetch("https://overpass-api.de/api/interpreter", {
+  ",{method:"POST",body:q});
  const d=await r.json();
  d.elements.forEach(e=>{
   const m=L.circleMarker([e.lat,e.lon],{radius:5,color:"red",fillOpacity:.8});
