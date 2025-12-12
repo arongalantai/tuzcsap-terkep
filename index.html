@@ -12,15 +12,41 @@
 <style>
 html,body{height:100%;margin:0;font-family:Arial}
 #map{height:100vh;width:100vw}
+
 .panel{
- position:absolute;top:10px;left:10px;z-index:1000;
- background:#fff;padding:10px;border-radius:6px;
+ position:absolute;
+ top:10px;
+ left:10px;
+ z-index:1000;
+ background:#fff;
+ padding:10px;
+ border-radius:6px;
  box-shadow:0 2px 6px rgba(0,0,0,.3);
- font-size:14px;width:280px;max-height:95vh;overflow:auto
+ font-size:14px;
+ width:280px;
+ max-height:95vh;
+ overflow:auto
 }
-button,input{width:100%;margin-top:5px}
-.admin{background:#f5f5f5;padding:5px;margin-top:5px}
-hr{margin:8px 0}
+
+button,input{
+ width:100%;
+ margin-top:6px;
+ font-size:15px
+}
+
+.admin{
+ background:#f5f5f5;
+ padding:6px;
+ margin-top:6px
+}
+
+@media (max-width:600px){
+ .panel{
+  width:90vw;
+  left:5vw;
+  font-size:16px
+ }
+}
 </style>
 </head>
 
@@ -48,27 +74,27 @@ hr{margin:8px 0}
 <script>
 /* ===== KONFIG ===== */
 const ADMIN_PIN = "1234";
-const MIN_ZOOM = 15;
+const MIN_ZOOM = 13;          // 🔥 MOBILFIX
 const DUPLICATE_DISTANCE = 15;
 
 /* ===== MAP ===== */
-const map = L.map("map").setView([47.1625,19.5033],7);
+const map = L.map("map", { tap:true }).setView([47.1625,19.5033],7);
 L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(map);
 const cluster = L.markerClusterGroup();
 map.addLayer(cluster);
 
-/* ===== TŰZCSAP IKON ===== */
+/* ===== IKON ===== */
 const hydrantIcon = L.icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/2972/2972185.png",
-  iconSize: [28, 28],
-  iconAnchor: [14, 28],
-  popupAnchor: [0, -28]
+  iconSize: [28,28],
+  iconAnchor: [14,28],
+  popupAnchor: [0,-28]
 });
 
 /* ===== ÁLLAPOT ===== */
 let hydrants=[], lastBBox=null;
 let userMarker=null, routeLine=null;
-let reportMode=false, adminMode=false;
+let reportMode=false;
 let reports = JSON.parse(localStorage.getItem("hydrantReports")||"[]");
 let reportMarkers=[];
 
@@ -87,14 +113,18 @@ function isDuplicate(lat,lon){
 /* ===== TŰZCSAPOK ===== */
 async function loadHydrants(){
  if(map.getZoom()<MIN_ZOOM){
-  cluster.clearLayers(); hydrants=[]; return;
+  cluster.clearLayers();
+  hydrants=[];
+  return;
  }
+
  const b=map.getBounds();
  const bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
  if(JSON.stringify(bb)===JSON.stringify(lastBBox)) return;
  lastBBox=bb;
 
- cluster.clearLayers(); hydrants=[];
+ cluster.clearLayers();
+ hydrants=[];
 
  const q=`[out:json][timeout:25];
  (
@@ -110,9 +140,8 @@ async function loadHydrants(){
  d.elements.forEach(h=>{
   if(!h.lat||!h.lon||isDuplicate(h.lat,h.lon)) return;
 
-  const m = L.marker([h.lat,h.lon],{
-    icon: hydrantIcon
-  }).bindPopup("🚒 Tűzcsap");
+  const m=L.marker([h.lat,h.lon],{icon:hydrantIcon})
+    .bindPopup("🚒 Tűzcsap");
 
   hydrants.push({lat:h.lat,lon:h.lon,marker:m});
   cluster.addLayer(m);
@@ -126,7 +155,8 @@ map.on("zoomend",loadHydrants);
 function setUser(lat,lon){
  if(userMarker) map.removeLayer(userMarker);
  userMarker=L.marker([lat,lon]).addTo(map)
-   .bindPopup("📍 Saját hely").openPopup();
+  .bindPopup("📍 Saját hely")
+  .openPopup();
  map.setView([lat,lon],16);
 }
 
@@ -148,24 +178,34 @@ function locate(){
  );
 }
 
-/* kattintásos hely / jelentés */
-map.on("click",e=>{
+/* ===== MAP TAP / CLICK ===== */
+map.on("tap",handleMapTap);
+map.on("click",handleMapTap);
+
+function handleMapTap(e){
  if(reportMode){
   const note=prompt("Megjegyzés (opcionális):")||"";
   const r={lat:e.latlng.lat,lon:e.latlng.lng,note,time:new Date().toISOString()};
   reports.push(r);
   localStorage.setItem("hydrantReports",JSON.stringify(reports));
-  L.marker(e.latlng,{icon:L.divIcon({html:"❌",className:"",iconSize:[20,20]})})
-   .addTo(map).bindPopup("🚨 Hiányzó tűzcsap jelentve").openPopup();
+
+  L.marker(e.latlng,{
+    icon:L.divIcon({html:"❌",className:"",iconSize:[20,20]})
+  }).addTo(map)
+    .bindPopup("🚨 Hiányzó tűzcsap jelentve")
+    .openPopup();
+
   reportMode=false;
- } else {
-  setUser(e.latlng.lat,e.latlng.lng);
+  return;
  }
-});
+ setUser(e.latlng.lat,e.latlng.lng);
+}
 
 /* ===== CÍM ===== */
 async function searchAddr(){
- const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr.value)}`);
+ const r=await fetch(
+  `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addr.value)}`
+ );
  const d=await r.json();
  if(d[0]) setUser(+d[0].lat,+d[0].lon);
 }
@@ -182,11 +222,15 @@ function nearestHydrant(){
  best.marker.openPopup();
  return best;
 }
+
 async function routeToNearest(){
- const h=nearestHydrant(); if(!h) return;
+ const h=nearestHydrant();
+ if(!h) return;
  if(routeLine) map.removeLayer(routeLine);
  const u=userMarker.getLatLng();
- const r=await fetch(`https://router.project-osrm.org/route/v1/foot/${u.lng},${u.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`);
+ const r=await fetch(
+  `https://router.project-osrm.org/route/v1/foot/${u.lng},${u.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`
+ );
  const d=await r.json();
  routeLine=L.geoJSON(d.routes[0].geometry,{color:"blue"}).addTo(map);
 }
@@ -194,14 +238,17 @@ async function routeToNearest(){
 /* ===== JELENTÉS + ADMIN ===== */
 function enableReportMode(){
  reportMode=true;
- alert("Jelentés mód aktív.\nKattints a térképre a hiányzó tűzcsap helyén.");
+ alert("Jelentés mód aktív.\nÉrintsd meg a térképet a tűzcsap helyén.");
 }
+
 function adminLogin(){
  const pin=prompt("Admin PIN:");
  if(pin===ADMIN_PIN){
-  showAdminPanel(); drawReports();
+  showAdminPanel();
+  drawReports();
  } else alert("Hibás PIN");
 }
+
 function showAdminPanel(){
  adminPanel.style.display="block";
  adminPanel.innerHTML=`
@@ -211,14 +258,19 @@ function showAdminPanel(){
   <button onclick="clearReports()">🗑️ Törlés</button>
  `;
 }
+
 function drawReports(){
- reportMarkers.forEach(m=>map.removeLayer(m)); reportMarkers=[];
+ reportMarkers.forEach(m=>map.removeLayer(m));
+ reportMarkers=[];
  reports.forEach(r=>{
-  const m=L.marker([r.lat,r.lon],{icon:L.divIcon({html:"❌",className:"",iconSize:[20,20]})})
-   .addTo(map).bindPopup(`🚨 Hiányzó tűzcsap<br>${r.note}<br><small>${r.time}</small>`);
+  const m=L.marker([r.lat,r.lon],{
+    icon:L.divIcon({html:"❌",className:"",iconSize:[20,20]})
+  }).addTo(map)
+   .bindPopup(`🚨 Hiányzó tűzcsap<br>${r.note}<br><small>${r.time}</small>`);
   reportMarkers.push(m);
  });
 }
+
 function exportReports(){
  if(!reports.length){alert("Nincs jelentés");return;}
  const txt=reports.map(r=>`${r.lat},${r.lon} | ${r.note} | ${r.time}`).join("\n");
@@ -227,10 +279,13 @@ function exportReports(){
  a.download="hianyzo_tuzcsap_jelentesek.txt";
  a.click();
 }
+
 function clearReports(){
  if(confirm("Biztos törlöd az összes jelentést?")){
-  reports=[]; localStorage.removeItem("hydrantReports");
-  reportMarkers.forEach(m=>map.removeLayer(m)); reportMarkers=[];
+  reports=[];
+  localStorage.removeItem("hydrantReports");
+  reportMarkers.forEach(m=>map.removeLayer(m));
+  reportMarkers=[];
   showAdminPanel();
  }
 }
