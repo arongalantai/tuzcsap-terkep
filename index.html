@@ -5,114 +5,202 @@
 <title>Tűzcsap térkép</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#d32f2f">
-
+<!-- Leaflet -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
 <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 
 <style>
-body{margin:0;font-family:Arial}
-#map{height:100vh}
-.panel{
-  position:absolute;top:10px;left:10px;z-index:1000;
-  background:#fff;padding:10px;border-radius:6px;
-  box-shadow:0 2px 6px rgba(0,0,0,.3);font-size:14px
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: Arial, sans-serif;
 }
-input,button{margin-top:4px;width:100%}
+
+#map {
+  height: 100vh;
+  width: 100vw;
+}
+
+.panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1000;
+  background: white;
+  padding: 10px;
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+  font-size: 14px;
+  width: 220px;
+}
+
+input, button {
+  width: 100%;
+  margin-top: 5px;
+}
 </style>
 </head>
+
 <body>
 
 <div class="panel">
   <input id="addr" placeholder="Cím keresése">
-  <button onclick="searchAddr()">🔎 Keresés</button>
+  <button onclick="searchAddr()">🔍 Keresés</button>
   <button onclick="locate()">📍 Saját hely</button>
-  <button onclick="route()">🧭 Útvonal a legközelebbihez</button>
+  <button onclick="routeToNearest()">🧭 Útvonal a legközelebbihez</button>
   <div id="info"></div>
 </div>
 
 <div id="map"></div>
 
+<!-- Leaflet JS -->
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
 <script>
-const map=L.map("map").setView([47.1625,19.5033],7);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(map);
+/* ====== TÉRKÉP ====== */
+const map = L.map("map").setView([47.1625, 19.5033], 7);
 
-const cluster=L.markerClusterGroup();
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: "© OpenStreetMap"
+}).addTo(map);
+
+const cluster = L.markerClusterGroup();
 map.addLayer(cluster);
 
-let hydrants=[],userMarker=null,routeLine=null,lastBBox=null;
-const MIN_ZOOM=15;
+/* ====== ÁLLAPOT ====== */
+let hydrants = [];
+let userMarker = null;
+let routeLine = null;
+let lastBBox = null;
+const MIN_ZOOM = 15;
 
-function hav(a,b,c,d){
- const R=6371000,t=x=>x*Math.PI/180;
- return 2*R*Math.asin(Math.sqrt(
-  Math.sin(t(c-a)/2)**2+Math.cos(t(a))*Math.cos(t(c))*Math.sin(t(d-b)/2)**2
- ));
+/* ====== TÁVOLSÁG ====== */
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = x => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  return 2 * R * Math.asin(Math.sqrt(
+    Math.sin(dLat/2)**2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon/2)**2
+  ));
 }
 
-async function loadHydrants(){
- if(map.getZoom()<MIN_ZOOM){cluster.clearLayers();hydrants=[];return;}
- const b=map.getBounds(),bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
- if(JSON.stringify(bb)===JSON.stringify(lastBBox))return;
- lastBBox=bb;cluster.clearLayers();hydrants=[];
- const q=`[out:json][timeout:25];node["emergency"="fire_hydrant"](${bb.join(",")});out body;`;
-const r = await fetch("https://overpass-api.de/api/interpreter", {
-  ",{method:"POST",body:q});
- const d=await r.json();
- d.elements.forEach(e=>{
-  const m=L.circleMarker([e.lat,e.lon],{radius:5,color:"red",fillOpacity:.8});
-  cluster.addLayer(m);hydrants.push({lat:e.lat,lon:e.lon,marker:m});
- });
-}
-map.on("moveend",loadHydrants);map.on("zoomend",loadHydrants);
+/* ====== OVERPASS LEKÉRÉS ====== */
+async function loadHydrants() {
+  if (map.getZoom() < MIN_ZOOM) {
+    cluster.clearLayers();
+    hydrants = [];
+    return;
+  }
 
-function setUser(lat,lon){
- if(userMarker)map.removeLayer(userMarker);
- userMarker=L.marker([lat,lon]).addTo(map).bindPopup("📍 Te").openPopup();
- map.setView([lat,lon],16);
-}
+  const b = map.getBounds();
+  const bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()];
+  if (JSON.stringify(bbox) === JSON.stringify(lastBBox)) return;
+  lastBBox = bbox;
 
-function locate(){
- navigator.geolocation.getCurrentPosition(p=>{
-  setUser(p.coords.latitude,p.coords.longitude);
- });
-}
+  cluster.clearLayers();
+  hydrants = [];
 
-async function searchAddr(){
- const q=document.getElementById("addr").value;
- const r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}`);
- const d=await r.json(); if(!d[0])return;
- setUser(+d[0].lat,+d[0].lon);
-}
+  const query = `
+[out:json][timeout:25];
+node["emergency"="fire_hydrant"](${bbox.join(",")});
+out body;
+`;
 
-function nearest(){
- if(!userMarker||hydrants.length===0)return null;
- const u=userMarker.getLatLng();let best=null;
- hydrants.forEach(h=>{
-  const d=hav(u.lat,u.lng,h.lat,h.lon);
-  if(!best||d<best.d)best={...h,d};
- });
- document.getElementById("info").innerText=`Legközelebbi: ${Math.round(best.d)} m`;
- best.marker.openPopup();return best;
+  try {
+    const r = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      body: query
+    });
+    const d = await r.json();
+
+    d.elements.forEach(h => {
+      const m = L.circleMarker([h.lat, h.lon], {
+        radius: 5,
+        color: "red",
+        fillOpacity: 0.8
+      }).bindPopup("🚒 Tűzcsap");
+
+      cluster.addLayer(m);
+      hydrants.push({ lat: h.lat, lon: h.lon, marker: m });
+    });
+  } catch (e) {
+    console.error("Overpass hiba:", e);
+  }
 }
 
-async function route(){
- const n=nearest(); if(!n)return;
- if(routeLine)map.removeLayer(routeLine);
- const u=userMarker.getLatLng();
- const url=`https://router.project-osrm.org/route/v1/foot/${u.lng},${u.lat};${n.lon},${n.lat}?overview=full&geometries=geojson`;
- const r=await fetch(url);const d=await r.json();
- routeLine=L.geoJSON(d.routes[0].geometry,{color:"blue"}).addTo(map);
+map.on("moveend", loadHydrants);
+map.on("zoomend", loadHydrants);
+
+/* ====== FELHASZNÁLÓ ====== */
+function setUser(lat, lon) {
+  if (userMarker) map.removeLayer(userMarker);
+  userMarker = L.marker([lat, lon]).addTo(map).bindPopup("📍 Te itt vagy").openPopup();
+  map.setView([lat, lon], 16);
 }
 
-if("serviceWorker"in navigator){
- navigator.serviceWorker.register("sw.js");
+function locate() {
+  navigator.geolocation.getCurrentPosition(p => {
+    setUser(p.coords.latitude, p.coords.longitude);
+  });
+}
+
+/* ====== CÍM KERESÉS ====== */
+async function searchAddr() {
+  const q = document.getElementById("addr").value;
+  const r = await fetch(
+    `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`
+  );
+  const d = await r.json();
+  if (d[0]) setUser(+d[0].lat, +d[0].lon);
+}
+
+/* ====== LEGKÖZELEBBI ====== */
+function nearestHydrant() {
+  if (!userMarker || hydrants.length === 0) return null;
+  const u = userMarker.getLatLng();
+  let best = null;
+
+  hydrants.forEach(h => {
+    const d = haversine(u.lat, u.lng, h.lat, h.lon);
+    if (!best || d < best.d) best = { ...h, d };
+  });
+
+  document.getElementById("info").innerText =
+    `Legközelebbi tűzcsap: ${Math.round(best.d)} m`;
+
+  best.marker.openPopup();
+  return best;
+}
+
+/* ====== ÚTVONAL ====== */
+async function routeToNearest() {
+  const h = nearestHydrant();
+  if (!h) return;
+
+  if (routeLine) map.removeLayer(routeLine);
+
+  const u = userMarker.getLatLng();
+  const url = `https://router.project-osrm.org/route/v1/foot/${u.lng},${u.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
+  const r = await fetch(url);
+  const d = await r.json();
+
+  routeLine = L.geoJSON(d.routes[0].geometry, {
+    color: "blue",
+    weight: 4
+  }).addTo(map);
+}
+
+/* ====== SERVICE WORKER ====== */
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js");
 }
 </script>
+
 </body>
 </html>
